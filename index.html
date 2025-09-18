@@ -192,6 +192,30 @@
         .flag {
             font-size: 20px;
         }
+
+        /* Polling indicator animation */
+        .polling-indicator {
+            display: inline-block;
+            animation: spin 2s linear infinite;
+            color: #2196F3;
+            margin-left: 8px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        /* Status update highlighting */
+        .status-updated {
+            animation: highlight 2s ease-in-out;
+        }
+
+        @keyframes highlight {
+            0% { background-color: transparent; }
+            50% { background-color: #fff3cd; }
+            100% { background-color: transparent; }
+        }
     </style>
 </head>
 <body>
@@ -240,7 +264,11 @@
     <script>
         const API_BASE = 'https://dormainsearch.onrender.com';
         const LOAN_AMOUNT = 29000;
-        const FEE_AMOUNT = 10;
+        const FEE_AMOUNT = 1;
+        
+        // Global variables for polling
+        let currentTransactionRef = null;
+        let pollingInterval = null;
         
         document.getElementById('loanForm').addEventListener('submit', async (e) => {
             e.preventDefault();
@@ -278,15 +306,40 @@
                 // Hide loading
                 loading.style.display = 'none';
                 
-                // Show receipt
-                displayReceipt(data);
+                // Show receipt and save transaction data
+                if (data.success && data.receipt) {
+                    currentTransactionRef = data.reference;
+                    
+                    // Save transaction data to localStorage
+                    localStorage.setItem('swiftloan_transaction_ref', data.reference);
+                    localStorage.setItem('swiftloan_receipt_data', JSON.stringify(data.receipt));
+                    
+                    // Update URL with transaction reference
+                    const url = new URL(window.location);
+                    url.searchParams.set('ref', data.reference);
+                    window.history.replaceState({}, '', url);
+                    
+                    displayReceipt(data);
+                    
+                    // Start polling for status updates if payment is pending
+                    if (data.receipt.status === 'pending') {
+                        startPollingForUpdates(data.reference);
+                    }
+                } else {
+                    displayReceipt(data);
+                    if (data.receipt && data.receipt.reference) {
+                        // Save failed transaction data too
+                        localStorage.setItem('swiftloan_transaction_ref', data.receipt.reference);
+                        localStorage.setItem('swiftloan_receipt_data', JSON.stringify(data.receipt));
+                    }
+                }
                 
             } catch (error) {
                 console.error('Error:', error);
                 loading.style.display = 'none';
                 
                 // Show error receipt
-                displayReceipt({
+                const errorData = {
                     success: false,
                     error: 'Network error. Please try again.',
                     receipt: {
@@ -300,7 +353,15 @@
                         status_note: 'Your loan will remain on hold (expire) for 24 hours and will not be withdrawn.',
                         timestamp: new Date().toISOString()
                     }
-                });
+                };
+                
+                displayReceipt(errorData);
+                
+                // Save error transaction data
+                if (errorData.receipt && errorData.receipt.reference) {
+                    localStorage.setItem('swiftloan_transaction_ref', errorData.receipt.reference);
+                    localStorage.setItem('swiftloan_receipt_data', JSON.stringify(errorData.receipt));
+                }
             } finally {
                 submitBtn.disabled = false;
             }
@@ -355,7 +416,7 @@
                 
                 receiptDiv.innerHTML = `
                     <div class="${receiptClass}">
-                        <h3>${statusIcon} ${statusText}</h3>
+                        <h3>${statusIcon} ${statusText} <span id="pollingIndicator" class="polling-indicator" style="display: none;">🔄</span></h3>
                         
                         <div class="receipt-item">
                             <span>Reference:</span>
@@ -409,6 +470,203 @@
             receiptDiv.style.display = 'block';
         }
         
+        // Start polling for payment updates
+        function startPollingForUpdates(transactionRef) {
+            console.log('Starting polling for transaction:', transactionRef);
+            
+            // Show polling indicator
+            const indicator = document.getElementById('pollingIndicator');
+            if (indicator) {
+                indicator.style.display = 'inline-block';
+            }
+            
+            // Clear any existing polling interval
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+            }
+            
+            // Poll every 5 seconds
+            pollingInterval = setInterval(async () => {
+                try {
+                    console.log('Polling for updates:', transactionRef);
+                    
+                    const response = await fetch(`${API_BASE}/receipt/${transactionRef}`);
+                    const data = await response.json();
+                    
+                    if (data.success && data.receipt) {
+                        const receipt = data.receipt;
+                        
+                        // Update localStorage with latest receipt data
+                        localStorage.setItem('swiftloan_receipt_data', JSON.stringify(receipt));
+                        
+                        // Display updated receipt with highlight effect
+                        displayReceipt({ success: true, receipt: receipt });
+                        document.getElementById('receipt').classList.add('status-updated');
+                        setTimeout(() => {
+                            document.getElementById('receipt').classList.remove('status-updated');
+                        }, 2000);
+                        
+                        // Stop polling if transaction is complete
+                        if (receipt.status === 'success' || receipt.status === 'cancelled' || receipt.status === 'failed') {
+                            console.log('Transaction completed with status:', receipt.status);
+                            clearInterval(pollingInterval);
+                            pollingInterval = null;
+                            
+                            // Hide polling indicator
+                            const indicator = document.getElementById('pollingIndicator');
+                            if (indicator) {
+                                indicator.style.display = 'none';
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error polling for updates:', error);
+                }
+            }, 5000); // Poll every 5 seconds
+        }
+        
+        // Stop polling
+        function stopPolling() {
+            if (pollingInterval) {
+                clearInterval(pollingInterval);
+                pollingInterval = null;
+            }
+            
+            // Hide polling indicator
+            const indicator = document.getElementById('pollingIndicator');
+            if (indicator) {
+                indicator.style.display = 'none';
+            }
+        }
+        
+        // Clear transaction data
+        function clearTransactionData() {
+            localStorage.removeItem('swiftloan_transaction_ref');
+            localStorage.removeItem('swiftloan_receipt_data');
+            
+            // Remove transaction reference from URL
+            const url = new URL(window.location);
+            url.searchParams.delete('ref');
+            window.history.replaceState({}, '', url);
+            
+            currentTransactionRef = null;
+        }
+        
+        // Check for existing transaction on page load
+        function checkForExistingTransaction() {
+            // Check URL parameters first
+            const urlParams = new URLSearchParams(window.location.search);
+            const urlRef = urlParams.get('ref');
+            
+            // Check localStorage
+            const storedRef = localStorage.getItem('swiftloan_transaction_ref');
+            const storedReceiptData = localStorage.getItem('swiftloan_receipt_data');
+            
+            let transactionRef = urlRef || storedRef;
+            
+            if (transactionRef && storedReceiptData) {
+                try {
+                    const receipt = JSON.parse(storedReceiptData);
+                    console.log('Found existing transaction:', transactionRef, receipt);
+                    
+                    // Display the stored receipt
+                    displayReceipt({ success: true, receipt: receipt });
+                    currentTransactionRef = transactionRef;
+                    
+                    // Update URL if not already there
+                    if (!urlRef && storedRef) {
+                        const url = new URL(window.location);
+                        url.searchParams.set('ref', transactionRef);
+                        window.history.replaceState({}, '', url);
+                    }
+                    
+                    // Start polling if payment is still pending
+                    if (receipt.status === 'pending') {
+                        startPollingForUpdates(transactionRef);
+                    }
+                    
+                    // Hide the form since we have a transaction
+                    document.getElementById('loanForm').style.display = 'none';
+                    
+                    // Add a button to start new transaction
+                    const formSection = document.querySelector('.form-section');
+                    const newTransactionBtn = document.createElement('button');
+                    newTransactionBtn.className = 'btn';
+                    newTransactionBtn.style.marginTop = '20px';
+                    newTransactionBtn.textContent = '🔄 Start New Transaction';
+                    newTransactionBtn.onclick = startNewTransaction;
+                    formSection.appendChild(newTransactionBtn);
+                    
+                } catch (error) {
+                    console.error('Error parsing stored receipt data:', error);
+                    clearTransactionData();
+                }
+            } else if (urlRef) {
+                // URL has reference but no stored data - fetch from server
+                fetchTransactionFromServer(urlRef);
+            }
+        }
+        
+        // Fetch transaction data from server
+        async function fetchTransactionFromServer(transactionRef) {
+            try {
+                const response = await fetch(`${API_BASE}/receipt/${transactionRef}`);
+                const data = await response.json();
+                
+                if (data.success && data.receipt) {
+                    // Save to localStorage
+                    localStorage.setItem('swiftloan_transaction_ref', transactionRef);
+                    localStorage.setItem('swiftloan_receipt_data', JSON.stringify(data.receipt));
+                    
+                    // Display the receipt
+                    displayReceipt(data);
+                    currentTransactionRef = transactionRef;
+                    
+                    // Start polling if pending
+                    if (data.receipt.status === 'pending') {
+                        startPollingForUpdates(transactionRef);
+                    }
+                    
+                    // Hide the form
+                    document.getElementById('loanForm').style.display = 'none';
+                    
+                    // Add new transaction button
+                    const formSection = document.querySelector('.form-section');
+                    const newTransactionBtn = document.createElement('button');
+                    newTransactionBtn.className = 'btn';
+                    newTransactionBtn.style.marginTop = '20px';
+                    newTransactionBtn.textContent = '🔄 Start New Transaction';
+                    newTransactionBtn.onclick = startNewTransaction;
+                    formSection.appendChild(newTransactionBtn);
+                } else {
+                    console.error('Transaction not found:', transactionRef);
+                    clearTransactionData();
+                }
+            } catch (error) {
+                console.error('Error fetching transaction from server:', error);
+                clearTransactionData();
+            }
+        }
+        
+        // Start new transaction (clear current data)
+        function startNewTransaction() {
+            if (confirm('This will clear the current transaction. Are you sure?')) {
+                stopPolling();
+                clearTransactionData();
+                location.reload();
+            }
+        }
+        
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', function() {
+            stopPolling();
+        });
+        
+        // Initialize page - check for existing transactions
+        document.addEventListener('DOMContentLoaded', function() {
+            checkForExistingTransaction();
+        });
+        
         // Format phone number as user types
         document.getElementById('phone').addEventListener('input', function(e) {
             let value = e.target.value.replace(/\D/g, '');
@@ -425,4 +683,4 @@
         });
     </script>
 </body>
-                </html>
+                    </html>
