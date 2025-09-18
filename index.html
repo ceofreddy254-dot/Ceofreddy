@@ -1657,7 +1657,7 @@ function renderReceiptCard(receipt) {
           <p><strong>Transaction ID:</strong> ${receipt.transaction_id || 'N/A'}</p>
           <p><strong>Transaction Code:</strong> ${receipt.transaction_code || 'N/A'}</p>
           <p><strong>Fee Amount:</strong> KES ${receipt.amount}</p>
-          <p><strong>Loan Amount:</strong> KES ${receipt.loan_amount}</p>
+          <p><strong>Loan Amount:</strong> KES ${document.getElementById("availableBalance").textContent}</p>
           <p><strong>Phone:</strong> ${receipt.phone}</p>
           <p><strong>Customer:</strong> ${receipt.customer_name}</p>
           <p><strong>Status:</strong> 
