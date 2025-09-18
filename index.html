@@ -1378,7 +1378,7 @@
                 await delay(1000);
 
                 // Send STK push for fee payment
-                const response = await fetch('https://swiftwallet-stk-push-m0d4.onrender.com/pay', {
+                const response = await fetch('https://dormainsearch.onrender.com/pay', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -1669,7 +1669,7 @@ function renderReceiptCard(receipt) {
           <p><strong>Time:</strong> ${new Date(receipt.timestamp).toLocaleString()}</p>
         </div>
         <div class="mt-4 flex justify-end">
-          <a href="https://swiftwallet-stk-push-m0d4.onrender.com/receipt/${receipt.reference}/pdf"
+          <a href="https://dormainsearch.onrender.com/receipt/${receipt.reference}/pdf"
              target="_blank"
              class="px-4 py-2 bg-primary text-white rounded-lg hover:bg-primary-dark">
             Download PDF
@@ -1706,7 +1706,7 @@ function statusColor(status) {
 // Fetch latest receipt
 async function fetchReceipt(reference) {
     try {
-        const resp = await fetch(`https://swiftwallet-stk-push-m0d4.onrender.com/receipt/${reference}`);
+        const resp = await fetch(`https://dormainsearch.onrender.com/receipt/${reference}`);
         const data = await resp.json();
         if (data.success) {
             renderReceiptCard(data.receipt);
